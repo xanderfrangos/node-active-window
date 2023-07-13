@@ -5,7 +5,7 @@
   "main": "./dist/index.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
-    "install": "prebuild-install -r napi || node-gyp rebuild",
+    "install": "npm run build",
     "demo": "ts-node --project tsconfig.json demo/index.ts",
     "build": "npm run clean && npm run build:ts && npm run build:gyp",
     "build:ts": "tsc --project tsconfig.build.json",

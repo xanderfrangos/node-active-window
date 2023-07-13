@@ -5,19 +5,7 @@ namespace PaymoActiveWindow {
 	std::unordered_map<HWINEVENTHOOK, ActiveWindow*> ActiveWindow::winEventProcCbCtx;
 
 	ActiveWindow::ActiveWindow(unsigned int iconCacheSize) {
-		// initialize GDI+
-		Gdiplus::GdiplusStartupInput gdiPlusStartupInput;
-		Gdiplus::GdiplusStartup(&this->gdiPlusToken, &gdiPlusStartupInput, NULL);
-		if (GdiPlusUtils::GetEncoderClsId(L"image/png", &this->gdiPlusEncoder) < 0) {
-			throw std::logic_error("Failed to get GDI+ encoder");
-		}
 
-		// initialize COM
-		CoInitializeEx(NULL, COINIT_MULTITHREADED);
-
-		if (iconCacheSize > 0) {
-			this->iconCache = new IconCache(iconCacheSize);
-		}
 	}
 
 	ActiveWindow::~ActiveWindow() {
@@ -28,12 +16,6 @@ namespace PaymoActiveWindow {
 			delete this->watchThread;
 			this->watchThread = NULL;
 		}
-
-		delete this->iconCache;
-		this->iconCache = NULL;
-
-		// tear down GDI+
-		Gdiplus::GdiplusShutdown(this->gdiPlusToken);
 
 		// tear down COM
 		CoUninitialize();
@@ -95,14 +77,9 @@ namespace PaymoActiveWindow {
 
 		if (info->isUWPApp) {
 			info->uwpPackage = this->getUWPPackage(hProc);
-			//info->icon = this->getUWPIcon(hProc);
 
 			// we need to close the handle of the UWP process
 			CloseHandle(hProc);
-		}
-		else {
-			// get window icon
-			//info->icon = this->getWindowIcon(info->path);
 		}
 
 		return info;
@@ -214,89 +191,6 @@ namespace PaymoActiveWindow {
 		return name;
 	}
 
-	std::string ActiveWindow::getWindowIcon(std::wstring path) {
-		if (this->iconCache != NULL && this->iconCache->has(&path)) {
-			return this->iconCache->get(&path);
-		}
-
-		HICON hIcon = this->getHighResolutionIcon(path);
-		
-		if (hIcon == NULL) {
-			return "";
-		}
-
-		IStream* pngStream = this->getPngFromIcon(hIcon);
-		if (pngStream == NULL) {
-			return "";
-		}
-
-		std::string iconBase64 = this->encodeImageStream(pngStream);
-
-		pngStream->Release();
-
-		if (iconBase64 == "") {
-			return "";
-		}
-
-		std::string icon = "data:image/png;base64," + iconBase64;
-
-		if (this->iconCache != NULL) {
-			this->iconCache->set(&path, &icon);
-		}
-
-		return icon;
-	}
-
-	std::string ActiveWindow::getUWPIcon(HANDLE hProc) {
-		std::wstring pkgPath = this->getUWPPackagePath(hProc);
-
-		if (pkgPath == L"") {
-			return "";
-		}
-
-		if (this->iconCache != NULL && this->iconCache->has(&pkgPath)) {
-			return this->iconCache->get(&pkgPath);
-		}
-
-		IAppxManifestProperties* properties = this->getUWPPackageProperties(pkgPath);
-
-		if (properties == NULL) {
-			return "";
-		}
-
-		LPWSTR logo = NULL;
-		properties->GetStringValue(L"Logo", &logo);
-		properties->Release();
-		std::wstring logoPath = pkgPath + L"\\" + logo;
-
-		if (!PathFileExistsW(logoPath.c_str())) {
-			// we need to use scale 100
-			size_t dotPos = logoPath.find_last_of(L".");
-			logoPath.insert(dotPos, L".scale-100");
-		}
-
-		IStream* pngStream = NULL;
-		if (FAILED(SHCreateStreamOnFileEx(logoPath.c_str(), STGM_READ | STGM_SHARE_EXCLUSIVE, 0, FALSE, NULL, &pngStream))) {
-			return "";
-		}
-
-		std::string iconBase64 = this->encodeImageStream(pngStream);
-
-		pngStream->Release();
-
-		if (iconBase64 == "") {
-			return "";
-		}
-
-		std::string icon = "data:image/png;base64," + iconBase64;
-
-		if (this->iconCache != NULL) {
-			this->iconCache->set(&pkgPath, &icon);
-		}
-
-		return icon;
-	}
-
 	std::wstring ActiveWindow::getUWPPackage(HANDLE hProc) {
 		UINT32 len = 0;
 		GetPackageFamilyName(hProc, &len, NULL);
@@ -327,78 +221,6 @@ namespace PaymoActiveWindow {
 
 	bool ActiveWindow::isUWPApp(std::wstring path) {
 		return this->basename(path) == L"ApplicationFrameHost.exe";
-	}
-
-	HICON ActiveWindow::getHighResolutionIcon(std::wstring path) {
-		// get file info
-		SHFILEINFOW fileInfo;
-		if ((HANDLE)SHGetFileInfoW(path.c_str(), 0, &fileInfo, sizeof(fileInfo), SHGFI_SYSICONINDEX) == INVALID_HANDLE_VALUE) {
-			return NULL;
-		}
-
-		// get jumbo icon list
-		IImageList* imgList;
-		if (FAILED(SHGetImageList(SHIL_JUMBO, IID_PPV_ARGS(&imgList)))) {
-			return NULL;
-		}
-
-		// get first icon
-		HICON hIcon;
-		if (FAILED(imgList->GetIcon(fileInfo.iIcon, ILD_TRANSPARENT, &hIcon))) {
-			imgList->Release();
-			return NULL;
-		}
-
-		imgList->Release();
-
-		return hIcon;
-	}
-
-	IStream* ActiveWindow::getPngFromIcon(HICON hIcon) {
-		// convert icon to bitmap
-		ICONINFO iconInf;
-		if (!GetIconInfo(hIcon, &iconInf)) {
-			return NULL;
-		}
-
-		BITMAP bmp;
-		if (!GetObject(iconInf.hbmColor, sizeof(bmp), &bmp)) {
-			return NULL;
-		}
-
-		Gdiplus::Bitmap tmp(iconInf.hbmColor, NULL);
-		Gdiplus::BitmapData lockedBitmapData;
-		Gdiplus::Rect rect(0, 0, tmp.GetWidth(), tmp.GetHeight());
-
-		if (tmp.LockBits(&rect, Gdiplus::ImageLockModeRead, tmp.GetPixelFormat(), &lockedBitmapData) != Gdiplus::Ok) {
-			return NULL;
-		}
-
-		// get bitmap with transparency
-		Gdiplus::Bitmap image(lockedBitmapData.Width, lockedBitmapData.Height, lockedBitmapData.Stride, PixelFormat32bppARGB, reinterpret_cast<BYTE*>(lockedBitmapData.Scan0));
-		tmp.UnlockBits(&lockedBitmapData);
-
-		// convert image to png
-		IStream* pngStream = SHCreateMemStream(NULL, 0);
-		if (pngStream == NULL) {
-			return NULL;
-		}
-
-		Gdiplus::Status stat = image.Save(pngStream, &this->gdiPlusEncoder, NULL);
-
-		// prepare stream for reading
-		pngStream->Commit(STGC_DEFAULT);
-		LARGE_INTEGER seekPos;
-		seekPos.QuadPart = 0;
-		pngStream->Seek(seekPos, STREAM_SEEK_SET, NULL);
-
-		if (stat == Gdiplus::Ok) {
-			return pngStream;
-		}
-
-		// failed to save to stream
-		pngStream->Release();
-		return NULL;
 	}
 
 	std::wstring ActiveWindow::getUWPPackagePath(HANDLE hProc) {
@@ -454,24 +276,6 @@ namespace PaymoActiveWindow {
 		manifestStream->Release();
 		manifestReader->Release();
 		return properties;
-	}
-
-	std::string ActiveWindow::encodeImageStream(IStream* pngStream) {
-		// get stream size
-		STATSTG streamStat;
-		pngStream->Stat(&streamStat, STATFLAG_NONAME);
-
-		// convert stream to string
-		std::vector<char> buf(streamStat.cbSize.QuadPart);
-		ULONG read = 0;
-		pngStream->Read((void*)buf.data(), streamStat.cbSize.QuadPart, &read);
-
-		if (read == 0) {
-			return "";
-		}
-		
-		std::string str(buf.begin(), buf.end());
-		return base64_encode(str);
 	}
 
 	void ActiveWindow::runWatchThread() {

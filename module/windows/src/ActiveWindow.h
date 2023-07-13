@@ -4,7 +4,6 @@
 #include <commctrl.h>
 #include <commoncontrols.h>
 #include <shlwapi.h>
-#include <gdiplus.h>
 #include <stdexcept>
 #include <string>
 #include <sstream>
@@ -14,9 +13,6 @@
 #include <thread>
 #include <mutex>
 #include <functional>
-#include "IconCache.h"
-#include "GdiPlusUtils.h"
-#include "base64/base64.h"
 
 #ifndef _PAYMO_ACTIVEWINDOW_H
 #define _PAYMO_ACTIVEWINDOW_H
@@ -45,7 +41,6 @@ namespace PaymoActiveWindow {
 	private:
 		ULONG_PTR gdiPlusToken;
 		CLSID gdiPlusEncoder;
-		IconCache* iconCache = NULL;
 
 		watch_t nextWatchId = 1;
 
