@@ -95,14 +95,14 @@ namespace PaymoActiveWindow {
 
 		if (info->isUWPApp) {
 			info->uwpPackage = this->getUWPPackage(hProc);
-			info->icon = this->getUWPIcon(hProc);
+			//info->icon = this->getUWPIcon(hProc);
 
 			// we need to close the handle of the UWP process
 			CloseHandle(hProc);
 		}
 		else {
 			// get window icon
-			info->icon = this->getWindowIcon(info->path);
+			//info->icon = this->getWindowIcon(info->path);
 		}
 
 		return info;
